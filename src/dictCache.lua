@@ -1,36 +1,36 @@
-local dictCache = {_TYPE='module', _NAME='dictCache' }
+local dictCache = { _TYPE = 'module', _NAME = 'dictCache' }
 
 -- NOTE: nginx DICTs expire based on declared max size in memory (LRU), not total number of items.
-function dictCache.new( dictName, secs )
+function dictCache.new(dictName, secs)
     local self = {
-                    dictName = dictName,
-                    maxSecs = secs or 0
-                }
+        dictName = dictName,
+        maxSecs = secs or 0
+    }
 
     local cache = ngx.shared[self.dictName];
 
-    function self:set( key, value )
-        cache:set( key, value, self.maxSecs )
+    function self:set(key, value)
+        cache:set(key, value, self.maxSecs)
     end
 
-    function self:add( key, value )
-        cache:add( key, value, self.maxSecs )
+    function self:add(key, value)
+        cache:add(key, value, self.maxSecs)
     end
 
-    function self:get( key )
-        return cache:get( key )
+    function self:get(key)
+        return cache:get(key)
     end
 
-    function self:delete( key )
-        return cache:delete( key )
+    function self:delete(key)
+        return cache:delete(key)
     end
 
-    function self:incr( key, by )
+    function self:incr(key, by)
         -- incr only works if already initialized, boo
         local newval, err = cache:incr(key, by)
 
         if newval == nil then
-            self.set( key, by )
+            self.set(key, by)
             newval = by
         end
 
@@ -44,8 +44,8 @@ function dictCache.new( dictName, secs )
     function self:flush_expired()
         cache:flush_expired()
     end
-    return self
 
+    return self
 end
 
 return dictCache

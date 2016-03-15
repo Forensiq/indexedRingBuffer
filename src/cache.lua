@@ -1,28 +1,28 @@
-local cache = {_TYPE='module', _NAME='cache' }
+local cache = { _TYPE = 'module', _NAME = 'cache' }
 
 function cache.new()
     local self = {
-                    data = {}
-                }
+        data = {}
+    }
 
-    function self:set( key, value )
+    function self:set(key, value)
         self.data[key] = value
     end
 
-    function self:get( key )
+    function self:get(key)
         return self.data[key]
     end
 
-    function self:delete( key )
+    function self:delete(key)
         self.data[key] = nil
     end
 
-    function self:incr( key, by )
+    function self:incr(key, by)
 
         if self.data[key] == nil then
-            self:set( key, by )
+            self:set(key, by)
         else
-            self.data[key] = self:get( key ) + by
+            self.data[key] = self:get(key) + by
         end
 
         return self:get(key)
@@ -35,7 +35,6 @@ function cache.new()
     end
 
     return self
-
 end
 
 return cache
