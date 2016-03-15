@@ -5,8 +5,17 @@ function cache.new()
         data = {}
     }
 
+    function self:add(key, value)
+        if self:get(key) ~= nil then
+            return false
+        end
+        self:set(key, value)
+        return true
+    end
+
     function self:set(key, value)
         self.data[key] = value
+        return true
     end
 
     function self:get(key)
@@ -18,7 +27,6 @@ function cache.new()
     end
 
     function self:incr(key, by)
-
         if self.data[key] == nil then
             self:set(key, by)
         else

@@ -10,11 +10,11 @@ function dictCache.new(dictName, secs)
     local cache = ngx.shared[self.dictName];
 
     function self:set(key, value)
-        cache:set(key, value, self.maxSecs)
+        return cache:set(key, value, self.maxSecs)
     end
 
     function self:add(key, value)
-        cache:add(key, value, self.maxSecs)
+        return cache:add(key, value, self.maxSecs)
     end
 
     function self:get(key)
