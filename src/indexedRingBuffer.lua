@@ -47,6 +47,33 @@ function indexedRingBuffer.new(params)
     ejectFunction = params.ejectFunction
   }
 
+  function self.initStorage(paramList)
+    local storageMap = {}
+    local storageInit = {}
+
+    for aIndex = 1, #paramList do
+      storageMap[paramList[aIndex].input] = tostring(aIndex)
+    end
+
+    self.storageInitString = cjson.encode(storageInit)
+    self.storageMap = storageMap
+
+    --initial draining status
+    self.cache:set("draining", false)
+  end
+
+  function self.initSizeStats(reinit)
+    self.sizeStats:set("itemCount", 0)
+    self.sizeStats:set('periodStart', os.time())
+    self.sizeStats:delete('locked')
+
+    if not reinit then
+      self.sizeStats:set("totalReqCount", 0)
+      self.sizeStats:set("totalItemCount", 0)
+      self.sizeStats:set("serverStart", os.time())
+    end
+  end
+
   function self.drain()
     --only one drain can occur at a given time
     if not self.cache:get("draining") then
@@ -168,6 +195,14 @@ function indexedRingBuffer.new(params)
     return stats
   end
 
+  -- save given id and data
+  -- if id previously exists, join values with merge command
+  -- if not, eject an item from dictionary and insert new one
+  --
+  -- data is stored as a JSON string in a format as follows
+  -- { key: ID, data: DATA }
+  -- where ID is first argument stored and string and DATA is params argument
+  -- stored as an object
   function self.set(id, params)
     --do not do anything if a drain is in process
     if self.cache:get("draining") then
@@ -189,7 +224,7 @@ function indexedRingBuffer.new(params)
     if not currentVal then
       currentItemPos = self.cache:incr("pos", 1)
 
-      ngx.log(ngx.DEBUG, currentItemPos .. " " .. self.sizeStats:get("currentSize"))
+      -- ngx.log(ngx.DEBUG, currentItemPos .. " " .. self.sizeStats:get("currentSize"))
 
       if (currentItemPos > self.sizeStats:get("currentSize")) then
         ngx.log(ngx.DEBUG, "Reached max size of " .. self.sizeStats:get("currentSize") .. ", will start at pos 1")
@@ -203,14 +238,14 @@ function indexedRingBuffer.new(params)
         local spVal = cjson.decode(existingItem)
 
         if self.ejectFunction then
-          ngx.log(ngx.DEBUG, "Will eject => " .. spVal.key .. ":" .. spVal.data)
+          ngx.log(ngx.DEBUG, "Will eject => " .. spVal.key)
           try(
           function ()
             self.ejectFunction(spVal.key, self.makeReadableParams(spVal.data), false)
           end,
           function (e)
             ngx.log(ngx.WARN, e)
-            ngx.log(ngx.WARN, "Failed to eject => " .. spVal.key .. ":" .. spVal.data)
+            ngx.log(ngx.WARN, "Failed to eject => " .. spVal.key)
           end
           )
         end
@@ -259,6 +294,9 @@ function indexedRingBuffer.new(params)
     return current
   end
 
+  -- data is stored on dict similar to { 1: VALUE, 2: VALUE } where numbers
+  -- reflect order on config.cache.paramsList
+  -- this function reverts that effect so that outputs have readable names
   function self.makeReadableParams(params)
     local t = {}
     for name, val in pairs(self.storageMap) do
@@ -269,30 +307,20 @@ function indexedRingBuffer.new(params)
     return t
   end
 
-  function self.initStorage(paramList)
-    local storageMap = {}
-    local storageInit = {}
-
-    for aIndex = 1, #paramList do
-      storageMap[paramList[aIndex].input] = tostring(aIndex)
+  function self.get(id)
+    local keys = self.cache.get_keys()
+    local offset = self.cacheIndex:get(id)
+    if not offset then
+      ngx.log(ngx.DEBUG, 'Item not found with id ' .. id)
+      return nil
     end
 
-    self.storageInitString = cjson.encode(storageInit)
-    self.storageMap = storageMap
-
-    --initial draining status
-    self.cache:set("draining", false)
-  end
-
-  function self.initSizeStats(reinit)
-    self.sizeStats:set("itemCount", 0)
-    self.sizeStats:set('periodStart', os.time())
-    self.sizeStats:delete('locked')
-
-    if not reinit then
-      self.sizeStats:set("totalReqCount", 0)
-      self.sizeStats:set("totalItemCount", 0)
-      self.sizeStats:set("serverStart", os.time())
+    local docWithKey = self.cache:get(offset)
+    if docWithKey then
+      local doc = cjson.decode(docWithKey)
+      return cjson.encode(self.makeReadableParams(doc.data))
+    else
+      ngx.log(ngx.WARN, 'Cache miss on id ' .. id .. ' at offset ' .. offset)
     end
   end
 
@@ -370,24 +398,6 @@ function indexedRingBuffer.new(params)
     self.sizeStats:incr("totalReqCount", 1)
   end
 
-  function self.get(id)
-    local keys = self.cache.get_keys()
-    for key,value in pairs(keys) do print(key, ':', value) end
-    local offset = self.cacheIndex:get(id)
-    if not offset then
-      ngx.log(ngx.DEBUG, 'Item not found with id ' .. id)
-      return nil
-    end
-
-    local docWithKey = self.cache:get(offset)
-    if docWithKey then
-      local doc = cjson.decode(docWithKey)
-      return cjson.encode(self.makeReadableParams(doc.data))
-    else
-      ngx.log(ngx.WARN, 'Cache miss on id ' .. id .. ' at offset ' .. offset)
-    end
-  end
-
   --initialize size
   self.sizeStats:set("currentSize", params.initialSize or 1000000)
 
@@ -401,21 +411,6 @@ function indexedRingBuffer.new(params)
   self.initSizeStats()
 
   return self
-end
-
-function splitString(s, pattern)
-  if not pattern then pattern = "%s+"
-  end
-  local ret = {}
-  local pos = 1
-  local fstart, fend = string.find(s, pattern, pos)
-  while fstart do
-    table.insert(ret, string.sub(s, pos, fstart - 1))
-    pos = fend + 1
-    fstart, fend = string.find(s, pattern, pos)
-  end
-  table.insert(ret, string.sub(s, pos))
-  return ret
 end
 
 return indexedRingBuffer
