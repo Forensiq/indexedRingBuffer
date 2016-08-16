@@ -94,13 +94,13 @@ function indexedRingBuffer.new(params)
   function self.ejectItem(itemPos, doDel)
     ngx.log(ngx.DEBUG, 'Ejecting item #' .. itemPos)
     local item = self.cache:get(itemPos)
-    local splitVal = splitString(item, ID_SEP)
+    item = cjson.decode(item)
     if self.ejectFunction then
-      self.ejectFunction(splitVal[1], self.makeReadableParams(cjson.decode(splitVal[2])), true)
+      self.ejectFunction(item.key, self.makeReadableParams(item.data, true))
     end
 
     if doDel then
-      self.cacheIndex:delete(splitVal[1])
+      self.cacheIndex:delete(item.key)
       self.cache:delete(itemPos)
     end
   end
@@ -189,10 +189,10 @@ function indexedRingBuffer.new(params)
     if not currentVal then
       currentItemPos = self.cache:incr("pos", 1)
 
-      --ngx.log(ngx.DEBUG, currentItemPos .. " " .. self.sizeStats:get("currentSize"))
+      ngx.log(ngx.DEBUG, currentItemPos .. " " .. self.sizeStats:get("currentSize"))
 
       if (currentItemPos > self.sizeStats:get("currentSize")) then
-        --ngx.log(ngx.DEBUG, "Reached max size of " .. self.sizeStats:get("currentSize") .. ", will start at pos 1")
+        ngx.log(ngx.DEBUG, "Reached max size of " .. self.sizeStats:get("currentSize") .. ", will start at pos 1")
         self.cache:set("pos", 1)
         currentItemPos = 1
       end
@@ -200,22 +200,22 @@ function indexedRingBuffer.new(params)
       local existingItem = self.cache:get(currentItemPos)
 
       if existingItem then
-        local spVal = splitString(existingItem, ID_SEP)
+        local spVal = cjson.decode(existingItem)
 
         if self.ejectFunction then
-          ngx.log(ngx.DEBUG, "Will eject => " .. spVal[1] .. ":" .. spVal[2])
+          ngx.log(ngx.DEBUG, "Will eject => " .. spVal.key .. ":" .. spVal.data)
           try(
           function ()
-            self.ejectFunction(spVal[1], self.makeReadableParams(cjson.decode(spVal[2])), false)
+            self.ejectFunction(spVal.key, self.makeReadableParams(spVal.data), false)
           end,
           function (e)
             ngx.log(ngx.WARN, e)
-            ngx.log(ngx.WARN, "Failed to eject => " .. spVal[1] .. ":" .. spVal[2])
+            ngx.log(ngx.WARN, "Failed to eject => " .. spVal.key .. ":" .. spVal.data)
           end
           )
         end
 
-        self.cacheIndex:delete(spVal[1])
+        self.cacheIndex:delete(spVal.key)
         self.cache:delete(currentItemPos)
       end
 
@@ -224,8 +224,16 @@ function indexedRingBuffer.new(params)
 
     ngx.log(ngx.DEBUG, "Will set " .. id .. " at " .. currentItemPos)
 
-    local newVal = self.mergeValWithParams(id, currentVal, params)
+    local newVal = {
+      key = id,
+      data = self.merge(currentVal, params)
+    }
+    newVal = cjson.encode(newVal)
     local success, err = self.cache:set(currentItemPos, newVal)
+
+    if err then
+      ngx.log(ngx.WARN, err)
+    end
 
     --track cache rate and if needed
     self.checkRate(currentVal)
@@ -233,17 +241,12 @@ function indexedRingBuffer.new(params)
     return
   end
 
-  function self.mergeValWithParams(id, currentVal, params)
-    local current
+  function self.merge(currentVal, params)
+    local current = {}
 
     if not currentVal then
-      currentVal = self.storageInitString
-    else
-      local spCurr = splitString(currentVal, ID_SEP)
-      currentVal = spCurr[2]
+      currentVal = cjson.decode(self.storageInitString)
     end
-
-    current = cjson.decode(currentVal)
 
     for name, val in pairs(params) do
       if self.storageMap[name] and val ~= '' then
@@ -253,7 +256,7 @@ function indexedRingBuffer.new(params)
         current[self.storageMap[name]] = val
       end
     end
-    return id .. ID_SEP .. cjson.encode(current)
+    return current
   end
 
   function self.makeReadableParams(params)
@@ -368,15 +371,20 @@ function indexedRingBuffer.new(params)
   end
 
   function self.get(id)
+    local keys = self.cache.get_keys()
+    for key,value in pairs(keys) do print(key, ':', value) end
     local offset = self.cacheIndex:get(id)
     if not offset then
+      ngx.log(ngx.DEBUG, 'Item not found with id ' .. id)
       return nil
     end
 
     local docWithKey = self.cache:get(offset)
     if docWithKey then
-      local doc = cjson.decode(splitString(docWithKey, ID_SEP)[2])
-      return cjson.encode(self.makeReadableParams(doc))
+      local doc = cjson.decode(docWithKey)
+      return cjson.encode(self.makeReadableParams(doc.data))
+    else
+      ngx.log(ngx.WARN, 'Cache miss on id ' .. id .. ' at offset ' .. offset)
     end
   end
 
