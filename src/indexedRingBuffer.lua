@@ -57,6 +57,7 @@ function indexedRingBuffer.new(params)
       while item do
         --if ngx is present, we can leverage for faster parallel drain
         if ngx and self.ngxEjectUpstream then
+          ngx.log(ngx.DEBUG, 'Preparing to eject item #' .. pos)
           table.insert(callList, {
             self.ngxEjectUpstream,
             {
@@ -91,6 +92,7 @@ function indexedRingBuffer.new(params)
   end
 
   function self.ejectItem(itemPos, doDel)
+    ngx.log(ngx.DEBUG, 'Ejecting item #' .. itemPos)
     local item = self.cache:get(itemPos)
     local splitVal = splitString(item, ID_SEP)
     if self.ejectFunction then
@@ -109,6 +111,7 @@ function indexedRingBuffer.new(params)
     self.sizeStats:set("currentSize", size)
 
     if size < prevSize then
+      ngx.log(ngx.NOTICE, "Shrinking buffer size by " .. (prevSize - size) .. '. New size will be ' .. size)
       -- if we are currently higher than new max, move to end of new size and eject the rest
       if self.cache:get("pos") > size then
         self.cache:set("pos", size)
@@ -127,7 +130,7 @@ function indexedRingBuffer.new(params)
             }
           })
 
-          if# callList >= self.drainParallelItems then
+          if #callList >= self.drainParallelItems then
             local res = ngx.location.capture_multi(callList)
             callList = {}
           end
@@ -142,6 +145,8 @@ function indexedRingBuffer.new(params)
       if ngx and #callList > 0 then
         local res = ngx.location.capture_multi(callList)
       end
+    else
+      ngx.log(ngx.NOTICE, "Increasing buffer size by " .. (size - prevSize) .. '. New size will be '.. size)
     end
   end
 
