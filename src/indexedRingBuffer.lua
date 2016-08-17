@@ -222,6 +222,7 @@ function indexedRingBuffer.new(params)
 
     -- if this item does not currently exist, add new item, and process evicted item, if any
     if not currentVal then
+      currentVal = self.storageInitString
       currentItemPos = self.cache:incr("pos", 1)
 
       -- ngx.log(ngx.DEBUG, currentItemPos .. " " .. self.sizeStats:get("currentSize"))
@@ -235,6 +236,7 @@ function indexedRingBuffer.new(params)
       local existingItem = self.cache:get(currentItemPos)
 
       if existingItem then
+        ngx.log(ngx.DEBUG, 'existingItem at #' .. currentItemPos)
         local spVal = cjson.decode(existingItem)
 
         if self.ejectFunction then
@@ -261,7 +263,7 @@ function indexedRingBuffer.new(params)
 
     local newVal = {
       key = id,
-      data = self.merge(currentVal, params)
+      data = self.merge(cjson.decode(currentVal).data, params)
     }
     newVal = cjson.encode(newVal)
     local success, err = self.cache:set(currentItemPos, newVal)
@@ -276,19 +278,18 @@ function indexedRingBuffer.new(params)
     return
   end
 
-  function self.merge(currentVal, params)
-    local current = {}
-
-    if not currentVal then
-      currentVal = cjson.decode(self.storageInitString)
+  function self.merge(current, params)
+    if not current then
+      current = cjson.decode(self.storageInitString)
     end
 
-    for name, val in pairs(params) do
-      if self.storageMap[name] and val ~= '' then
+    for key, val in pairs(params) do
+      -- consider values only defined in storageMap
+      if self.storageMap[key] and val ~= '' then
         if type(val) == 'string' and string.find(val, ',') then
           val = '"' .. val .. '"'
         end
-        current[self.storageMap[name]] = val
+        current[self.storageMap[key]] = val
       end
     end
     return current
