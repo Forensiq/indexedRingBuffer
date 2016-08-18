@@ -8,8 +8,6 @@ local localCache = require "cache"
 local cjson = require "cjson"
 cjson.encode_sparse_array(false, 0, 0)
 
-local ID_SEP = ';;'
-
 -- try/catch util
 function try (f, catch_f)
   local status, exception = pcall(f)
