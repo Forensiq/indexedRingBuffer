@@ -220,7 +220,6 @@ function indexedRingBuffer.new(params)
 
     -- if this item does not currently exist, add new item, and process evicted item, if any
     if not currentVal then
-      currentVal = self.storageInitString
       currentItemPos = self.cache:incr("pos", 1)
 
       -- ngx.log(ngx.DEBUG, currentItemPos .. " " .. self.sizeStats:get("currentSize"))
@@ -261,7 +260,7 @@ function indexedRingBuffer.new(params)
 
     local newVal = {
       key = id,
-      data = self.merge(cjson.decode(currentVal).data, params)
+      data = self.merge(cjson.decode(currentVal or self.storageInitString).data, params)
     }
     newVal = cjson.encode(newVal)
     local success, err = self.cache:set(currentItemPos, newVal)
