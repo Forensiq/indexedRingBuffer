@@ -121,7 +121,7 @@ function indexedRingBuffer.new(params)
     local item = self.cache:get(itemPos)
     item = cjson.decode(item)
     if self.ejectFunction then
-      self.ejectFunction(item.key, self.makeReadableParams(item.data, true))
+      self.ejectFunction(item.key, self.makeReadableParams(item.data), true)
     end
 
     if doDel then
