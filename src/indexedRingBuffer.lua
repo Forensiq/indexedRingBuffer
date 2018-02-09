@@ -283,9 +283,6 @@ function indexedRingBuffer.new(params)
     for key, val in pairs(params) do
       -- consider values only defined in storageMap
       if self.storageMap[key] and val ~= '' then
-        if type(val) == 'string' and string.find(val, ',') then
-          val = '"' .. val .. '"'
-        end
         current[self.storageMap[key]] = val
       end
     end
