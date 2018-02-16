@@ -9,7 +9,7 @@ local cjson = require "cjson"
 cjson.encode_sparse_array(false, 0, 0)
 
 -- try/catch util
-function try (f, catch_f)
+function try(f, catch_f)
   local status, exception = pcall(f)
   if not status then
     catch_f(exception)
@@ -39,6 +39,9 @@ function indexedRingBuffer.new(params)
     maxAdjustPercentDown = params.maxAdjustPercent or 10,
     paramList = params.paramList,
     storageMap = {},
+    immutableKeys = {},
+    lockKey = '',
+    mutableKeys = {},
     storageInitString = '{}',
     ngxEjectUpstream = params.ngxEjectUpstream or "/ejectItem_upstream",
     drainParallelItems = params.drainParallelItems or 100,
@@ -47,14 +50,28 @@ function indexedRingBuffer.new(params)
 
   function self.initStorage(paramList)
     local storageMap = {}
+    local immutableKeys = {}
+    local mutableKeys = {}
     local storageInit = {}
 
     for aIndex = 1, #paramList do
-      storageMap[paramList[aIndex].input] = tostring(aIndex)
+      local key = tostring(aIndex)
+      storageMap[paramList[aIndex].input] = key
+      if paramList[aIndex].lockKey then
+        self.lockKey = key
+      end
+      if paramList[aIndex].immutable then
+        immutableKeys[paramList[aIndex].input] = true
+      end
+      if paramList[aIndex].mutable then
+        mutableKeys[paramList[aIndex].input] = true
+      end
     end
 
     self.storageInitString = cjson.encode(storageInit)
     self.storageMap = storageMap
+    self.immutableKeys = immutableKeys
+    self.mutableKeys = mutableKeys
 
     --initial draining status
     self.cache:set("draining", false)
@@ -171,7 +188,7 @@ function indexedRingBuffer.new(params)
         local res = ngx.location.capture_multi(callList)
       end
     else
-      ngx.log(ngx.NOTICE, "Increasing buffer size by " .. (size - prevSize) .. '. New size will be '.. size)
+      ngx.log(ngx.NOTICE, "Increasing buffer size by " .. (size - prevSize) .. '. New size will be ' .. size)
     end
   end
 
@@ -238,15 +255,13 @@ function indexedRingBuffer.new(params)
 
         if self.ejectFunction then
           ngx.log(ngx.DEBUG, "Will eject => " .. spVal.key)
-          try(
-          function ()
+          try(function()
             self.ejectFunction(spVal.key, self.makeReadableParams(spVal.data), false)
           end,
-          function (e)
-            ngx.log(ngx.WARN, e)
-            ngx.log(ngx.WARN, "Failed to eject => " .. spVal.key)
-          end
-          )
+            function(e)
+              ngx.log(ngx.WARN, e)
+              ngx.log(ngx.WARN, "Failed to eject => " .. spVal.key)
+            end)
         end
 
         self.cacheIndex:delete(spVal.key)
@@ -280,9 +295,10 @@ function indexedRingBuffer.new(params)
       current = cjson.decode(self.storageInitString)
     end
 
+    local locked = current[self.lockKey] ~= nil
     for key, val in pairs(params) do
       -- consider values only defined in storageMap
-      if self.storageMap[key] and val ~= '' then
+      if self.storageMap[key] and val ~= '' and (current[self.storageMap[key]] == nil or (self.immutableKeys[key] == nil and (not locked or self.mutableKeys[key]))) then
         current[self.storageMap[key]] = val
       end
     end
@@ -303,7 +319,6 @@ function indexedRingBuffer.new(params)
   end
 
   function self.get(id)
-    local keys = self.cache.get_keys()
     local offset = self.cacheIndex:get(id)
     if not offset then
       ngx.log(ngx.DEBUG, 'Item not found with id ' .. id)
